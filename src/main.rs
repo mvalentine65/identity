@@ -124,8 +124,8 @@ fn main() {
         eprintln!("Error: Invalid average identity threshold");
         std::process::exit(1);
     });
-    let ov_id_threshold = args[3].parse::<f64>().unwrap_or_else(|_| {
-        eprintln!("Error: Invalid overlap identity threshold");
+    let max_disagrees = args[3].parse::<usize>().unwrap_or_else(|_| {
+        eprintln!("Error: Invalid maximum disagreement value");
         std::process::exit(1);
     });
     let sequences = read_fasta_file(filename);
@@ -138,7 +138,7 @@ fn main() {
     }
 
     println!("Filtering sequences with identity above {}", avg_id_threshold);
-    let (passed_sequences, failed_sequences) = overlap_identity_filter(&sequences, ov_id_threshld);
+    let (passed_sequences, failed_sequences) = filter_sequences(&sequences, max_disagrees);
     let pass_path = filename.to_owned() + "-pass";
     match write_filtered_fasta_file(pass_path, passed_sequences) {
         Ok(_) => {},
