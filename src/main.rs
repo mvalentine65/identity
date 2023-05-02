@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::fs::File;
+use std::io::{Seek, Write};
 
 fn read_fasta_file(filename: &str) -> HashMap<String, String> {
     let mut sequences = HashMap::new();
@@ -58,20 +60,20 @@ fn average_pairwise_identity(sequences: &HashMap<String, String>) -> f64 {
     }
 }
 
-fn filter_sequences(sequences: &HashMap<String, String>, max_disagreements: usize) -> Vec<(String, String)> {
-    let mut seqs: Vec<&[u8]> = sequences.values().map(|x| x.as_bytes()).collect();
+fn filter_sequences(sequences: &HashMap<String, String>, max_disagreements: usize) -> Vec<(&String,&String)> {
+    let seqs: Vec<&[u8]> = sequences.values().map(|x| x.as_bytes()).collect();
     let consensus = make_consensus(&seqs);
     let mut filtered_seqs = Vec::new();
     for (id, seq) in sequences.iter() {
         let seq_bytes = seq.as_bytes();
         let mut disagreements = 0;
-        for (i, &c) in seq_bytes.iter().enumerate() {
-            if c != consensus[i] {
-                disagreements += 1;
+        for (i, &base) in seq_bytes.iter().enumerate() {
+            if base != b'-' && base != consensus[i] {
+                    disagreements += 1;
             }
         }
         if disagreements <= max_disagreements {
-            filtered_seqs.push((id.clone(), seq.clone()));
+            filtered_seqs.push((id, seq));
         }
     }
     filtered_seqs
@@ -79,27 +81,65 @@ fn filter_sequences(sequences: &HashMap<String, String>, max_disagreements: usiz
 
 fn make_consensus(seqs: &[&[u8]]) -> Vec<u8> {
     let mut consensus = Vec::with_capacity(seqs[0].len());
-    let num_seqs = seqs.len();
     for column in 0..seqs[0].len() {
-        let mut counts = vec![0; 256]; // Initialize array of counts to 0
+        let mut counts = vec![0; 256];
         for seq in seqs.iter() {
-            let c = seq[column] as usize;
-            counts[c] += 1;
+            let c = seq[column];
+            if c != b'-' {
+                counts[c as usize] += 1;
+            }
         }
         let (majority, _) = counts.iter().enumerate().max_by_key(|&(_, count)| count).unwrap();
-        consensus.push(*majority as u8);
+        consensus.push(majority as u8);
     }
     consensus
 }
+
+fn write_filtered_fasta_file(filename: &str, sequences: Vec<(&String, &String)>) -> std::io::Result<()> {
+    let mut file = File::create(filename)?;
+    for (id, seq) in sequences {
+        file.write_all(b">")?;
+        file.write_all(id.as_bytes())?;
+        file.write_all(b"\n")?;
+        file.write_all(seq.as_bytes())?;
+        file.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: {} <fasta_file>", args[0]);
+    if args.len() != 4 {
+        eprintln!("Usage: {} <fasta_file> <identity_threshold> <max_disagrees>", args[0]);
         std::process::exit(1);
     }
 
     let filename = &args[1];
+    let max_disagrees = args[3].parse::<usize>().unwrap_or_else(|_| {
+        eprintln!("Error: Invalid maximum disagree value");
+        std::process::exit(1);
+    });
+    let identity_threshold = args[2].parse::<f64>().unwrap_or_else(|_| {
+        eprintln!("Error: Invalid identiy threshold argument");
+        std::process::exit(1);
+    });
+
     let sequences = read_fasta_file(filename);
     let avg_identity = average_pairwise_identity(&sequences);
+
     println!("Average pairwise identity: {:.2}%", avg_identity);
+    if avg_identity < identity_threshold {
+        println!("{} below identity threshold {}",filename, identity_threshold);
+        std::process::exit(0);
+    }
+
+    println!("Filtering sequences with identity above {}", identity_threshold);
+    let filtered_sequences = filter_sequences(&sequences, max_disagrees);
+    match write_filtered_fasta_file(filename, filtered_sequences) {
+        Ok(_) => {},
+        Err(_) => {
+            eprintln!("Error writing filtered sequences");
+            std::process::exit(1);
+        },
+    }
 }
