@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::fs::File;
-use std::io::{Seek, Write};
+use std::io::Write;
 
 fn read_fasta_file(filename: &str) -> HashMap<String, String> {
     let mut sequences = HashMap::new();
