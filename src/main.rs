@@ -37,8 +37,8 @@ fn pairwise_identity(seq1: &[u8], seq2: &[u8]) -> f64 {
     let mut identical = 0;
     let mut aligned_length = 0;
 
-    for (a, b) in seq1.zip(seq2) {
-        if a == '-' || b == '-' {
+    for (a, b) in seq1.iter().zip(seq2.iter()) {
+        if *a == b'-' || *b == b'-' {
             continue;
         }
         aligned_length += 1;
@@ -85,9 +85,9 @@ fn average_pairwise_identity(sequences: &HashMap<String, String>) -> f64 {
     }
 }
 
-fn overlap_identity_filter(sequences: &HashMap<String, String>, threshold: f64) -> Vec<(&String, &String)>{
-    let mut results = vec![];
-
+fn overlap_identity_filter(sequences: &HashMap<String, String>, threshold: f64) -> (Vec<(&String, &String)>, Vec<(&String, &String)>) {
+    let mut passed = vec![];
+    let mut failed = vec![];
     for (id1, seq1) in sequences {
         let mut identities = vec![];
         // Find the non-gap interval of seq1
@@ -104,18 +104,18 @@ fn overlap_identity_filter(sequences: &HashMap<String, String>, threshold: f64) 
             let overlap_start = start1.max(start2);
             let overlap_end = end1.min(end2);
             if overlap_start <= overlap_end {
-                let identity = pairwise_identity(&seq1.as_bytes()[overlap_start..=overlap_end], &seq2.as_bytes()[overlap_start..=overlap_end]);
+                let identity = pairwise_identity(&seq1.as_bytes(), &seq2.as_bytes());
                 if identity >= threshold {
                     identities.push(identity);
                 }
             }
         }
-        match identities.iter().sum::<f64>()/identities.len() as f64 > threshold {
-            true => results.push((id1, seq1)),
-            false => {},
+        match identities.iter().sum::<f64>()/identities.len() as f64 > threshold * 100.0 {
+            true => passed.push((id1, seq1)),
+            false => failed.push((id1, seq1)),
         }
     }
-    results
+    (passed, failed)
 }
 
 
@@ -127,26 +127,26 @@ fn find_non_gap_positions(seq: &[u8]) -> (usize, usize) {
     (start, end)
 }
 
-// Calculate pairwise identities between a query sequence and a vector of subject sequences
-fn pairwise_identities(query: &str, subjects: &[&str]) -> Vec<f64> {
-    let query_bytes = query.as_bytes();
-    let query_len = query_bytes.len();
-    let mut pairwise_identities = Vec::with_capacity(subjects.len());
-    for subject in subjects {
-        let subject_bytes = subject.as_bytes();
-        let mut identity_count = 0;
-        for (q, s) in query_bytes.iter().zip(subject_bytes) {
-            if *q != b'-' && *s != b'-' && q == s {
-                identity_count += 1;
-            }
-        }
-        pairwise_identities.push(identity_count as f64 / query_len as f64 * 100.0);
-    }
-    pairwise_identities
-}
+// // Calculate pairwise identities between a query sequence and a vector of subject sequences
+// fn pairwise_identities(query: &str, subjects: &[&str]) -> Vec<f64> {
+//     let query_bytes = query.as_bytes();
+//     let query_len = query_bytes.len();
+//     let mut pairwise_identities = Vec::with_capacity(subjects.len());
+//     for subject in subjects {
+//         let subject_bytes = subject.as_bytes();
+//         let mut identity_count = 0;
+//         for (q, s) in query_bytes.iter().zip(subject_bytes) {
+//             if *q != b'-' && *s != b'-' && q == s {
+//                 identity_count += 1;
+//             }
+//         }
+//         pairwise_identities.push(identity_count as f64 / query_len as f64 * 100.0);
+//     }
+//     pairwise_identities
+// }
 
 
-fn write_filtered_fasta_file(filename: &str, sequences: Vec<(&String, &String)>) -> std::io::Result<()> {
+fn write_filtered_fasta_file(filename: String, sequences: Vec<(&String, &String)>) -> std::io::Result<()> {
     let mut file = File::create(filename)?;
     for (id, seq) in sequences {
         file.write_all(b">")?;
@@ -185,11 +185,20 @@ fn main() {
     }
 
     println!("Filtering sequences with identity above {}", avg_identity_threshold);
-    let filtered_sequences = overlap_identity_filter(&sequences, ov_identity_threshold);
-    match write_filtered_fasta_file(filename, filtered_sequences) {
+    let (passed_sequences, failed_sequences) = overlap_identity_filter(&sequences, ov_identity_threshold);
+    let pass_path = filename.to_owned() + "-pass";
+    match write_filtered_fasta_file(pass_path, passed_sequences) {
         Ok(_) => {},
         Err(_) => {
-            eprintln!("Error writing filtered sequences");
+            eprintln!("Error writing passed sequences");
+            std::process::exit(1);
+        },
+    }
+    let fail_path = filename.to_owned() + "-fail";
+    match write_filtered_fasta_file(fail_path, failed_sequences) {
+        Ok(_) => {},
+        Err(_) => {
+            eprintln!("Error writing passed sequences");
             std::process::exit(1);
         },
     }
