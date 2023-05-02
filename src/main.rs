@@ -27,41 +27,6 @@ fn read_fasta_file(filename: &str) -> HashMap<String, String> {
     sequences
 }
 
-//
-// fn pairwise_identity(seq1: &str, seq2: &str) -> f64 {
-//     if seq1.len() != seq2.len() {
-//         panic!("Sequences must be of equal length");
-//     }
-//
-//     let mut identical = 0;
-//     let mut aligned_length = 0;
-//
-//     for (a, b) in seq1.chars().zip(seq2.chars()) {
-//         if a == '-' || b == '-' {
-//             continue;
-//         }
-//         aligned_length += 1;
-//         if a == b {
-//             identical += 1;
-//         }
-//     }
-//
-//     if aligned_length == 0 {
-//         return 0.0;
-//     }
-//
-//     (identical as f64 / aligned_length as f64) * 100.0
-// }
-//
-// fn has_overlap(seq1: &String, seq2: &String) -> bool {
-//     for (a,b) in seq1.chars().zip(seq2.chars()) {
-//         if a != '-' && b != '-' {
-//             return true;
-//         }
-//     }
-//     false
-// }
-
 fn average_pairwise_identity(sequences: &HashMap<String, String>) -> f64 {
     // let sequence_ids = sequences.keys().cloned().collect::<Vec<_>>();
     let seqs: Vec<&[u8]> = sequences.values().map(|x| x.as_bytes()).collect();
@@ -93,27 +58,6 @@ fn average_pairwise_identity(sequences: &HashMap<String, String>) -> f64 {
     }
 }
 
-//     let mut num_pairs = 0;
-//     let mut total_identity = 0.0;
-//
-//     for (i, seq_id1) in sequence_ids.iter().enumerate() {
-//         for (j, seq_id2) in sequence_ids.iter().enumerate() {
-//             if i >= j {
-//                 continue;
-//             }
-//             if !(has_overlap(&sequences[seq_id1], &sequences[seq_id2])) { continue; }
-//             let identity = pairwise_identity(&sequences[seq_id1], &sequences[seq_id2]);
-//             total_identity += identity;
-//             num_pairs += 1;
-//         }
-//     }
-//
-//     if num_pairs == 0 {
-//         return 0.0;
-//     }
-//
-//     total_identity / num_pairs as f64
-// }
 fn filter_sequences(sequences: &HashMap<String, String>, max_disagreements: usize) -> Vec<(String, String)> {
     let mut seqs: Vec<&[u8]> = sequences.values().map(|x| x.as_bytes()).collect();
     let consensus = make_consensus(&seqs);
@@ -135,14 +79,15 @@ fn filter_sequences(sequences: &HashMap<String, String>, max_disagreements: usiz
 
 fn make_consensus(seqs: &[&[u8]]) -> Vec<u8> {
     let mut consensus = Vec::with_capacity(seqs[0].len());
+    let num_seqs = seqs.len();
     for column in 0..seqs[0].len() {
-        let mut counts = HashMap::new();
+        let mut counts = vec![0; 256]; // Initialize array of counts to 0
         for seq in seqs.iter() {
-            let c = seq[column];
-            *counts.entry(c).or_insert(0) += 1;
+            let c = seq[column] as usize;
+            counts[c] += 1;
         }
-        let (majority, _) = counts.into_iter().max_by_key(|(_, count)| *count).unwrap();
-        consensus.push(majority);
+        let (majority, _) = counts.iter().enumerate().max_by_key(|&(_, count)| count).unwrap();
+        consensus.push(*majority as u8);
     }
     consensus
 }
