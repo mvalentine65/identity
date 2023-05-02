@@ -29,6 +29,7 @@ fn read_fasta_file(filename: &str) -> HashMap<String, String> {
     sequences
 }
 
+
 fn average_pairwise_identity(sequences: &HashMap<String, String>) -> f64 {
     // let sequence_ids = sequences.keys().cloned().collect::<Vec<_>>();
     let seqs: Vec<&[u8]> = sequences.values().map(|x| x.as_bytes()).collect();
@@ -60,10 +61,11 @@ fn average_pairwise_identity(sequences: &HashMap<String, String>) -> f64 {
     }
 }
 
-fn filter_sequences(sequences: &HashMap<String, String>, max_disagreements: usize) -> Vec<(&String,&String)> {
+fn filter_sequences(sequences: &HashMap<String, String>, max_disagreements: usize) -> (Vec<(&String,&String)>,Vec<(&String,&String)>) {
     let seqs: Vec<&[u8]> = sequences.values().map(|x| x.as_bytes()).collect();
     let consensus = make_consensus(&seqs);
-    let mut filtered_seqs = Vec::new();
+    let mut passed_seqs = Vec::new();
+    let mut failed_seqs = Vec::new();
     for (id, seq) in sequences.iter() {
         let seq_bytes = seq.as_bytes();
         let mut disagreements = 0;
@@ -73,10 +75,12 @@ fn filter_sequences(sequences: &HashMap<String, String>, max_disagreements: usiz
             }
         }
         if disagreements <= max_disagreements {
-            filtered_seqs.push((id, seq));
+            passed_seqs.push((id, seq));
+        } else {
+            failed_seqs.push((id, seq));
         }
     }
-    filtered_seqs
+    (passed_seqs, failed_seqs)
 }
 
 fn make_consensus(seqs: &[&[u8]]) -> Vec<u8> {
@@ -95,7 +99,7 @@ fn make_consensus(seqs: &[&[u8]]) -> Vec<u8> {
     consensus
 }
 
-fn write_filtered_fasta_file(filename: &str, sequences: Vec<(&String, &String)>) -> std::io::Result<()> {
+fn write_filtered_fasta_file(filename: String, sequences: Vec<(&String, &String)>) -> std::io::Result<()> {
     let mut file = File::create(filename)?;
     for (id, seq) in sequences {
         file.write_all(b">")?;
@@ -115,31 +119,41 @@ fn main() {
     }
 
     let filename = &args[1];
-    let max_disagrees = args[3].parse::<usize>().unwrap_or_else(|_| {
-        eprintln!("Error: Invalid maximum disagree value");
-        std::process::exit(1);
-    });
-    let identity_threshold = args[2].parse::<f64>().unwrap_or_else(|_| {
-        eprintln!("Error: Invalid identiy threshold argument");
-        std::process::exit(1);
-    });
 
+    let avg_id_threshold = args[2].parse::<f64>().unwrap_or_else(|_| {
+        eprintln!("Error: Invalid average identity threshold");
+        std::process::exit(1);
+    });
+    let ov_id_threshold = args[3].parse::<f64>().unwrap_or_else(|_| {
+        eprintln!("Error: Invalid overlap identity threshold");
+        std::process::exit(1);
+    });
     let sequences = read_fasta_file(filename);
     let avg_identity = average_pairwise_identity(&sequences);
 
     println!("Average pairwise identity: {:.2}%", avg_identity);
-    if avg_identity < identity_threshold {
-        println!("{} below identity threshold {}",filename, identity_threshold);
+    if avg_identity < avg_id_threshold {
+        println!("{} below identity threshold {}",filename, avg_id_threshold);
         std::process::exit(0);
     }
 
-    println!("Filtering sequences with identity above {}", identity_threshold);
-    let filtered_sequences = filter_sequences(&sequences, max_disagrees);
-    match write_filtered_fasta_file(filename, filtered_sequences) {
+    println!("Filtering sequences with identity above {}", avg_id_threshold);
+    let (passed_sequences, failed_sequences) = overlap_identity_filter(&sequences, ov_id_threshld);
+    let pass_path = filename.to_owned() + "-pass";
+    match write_filtered_fasta_file(pass_path, passed_sequences) {
         Ok(_) => {},
         Err(_) => {
-            eprintln!("Error writing filtered sequences");
+            eprintln!("Error writing passed sequences");
             std::process::exit(1);
         },
     }
+    let fail_path = filename.to_owned() + "-fail";
+    match write_filtered_fasta_file(fail_path, failed_sequences) {
+        Ok(_) => {},
+        Err(_) => {
+            eprintln!("Error writing passed sequences");
+            std::process::exit(1);
+        },
+    }
+
 }
